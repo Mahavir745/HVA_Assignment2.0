@@ -1,0 +1,240 @@
+{
+   "properties": {
+      "name": "User Onboarding for Personal Loan",
+      "description": "Performs Digilocker and ID Card Validation + Selfie as fallback"
+   },
+   "modules": [
+      {
+         "type": "dynamicForm",
+         "id": "module_mobile_number_form",
+         "name": "Dynamic Form Module",
+         "nextStep": "",
+         "properties": {
+            "sections": [
+               {
+                  "id": "basic_details",
+                  "components": [
+                     {
+                        "type": "label",
+                        "subType": "title",
+                        "text": "Is your Digilocker linked to Phone Number?"
+                     },
+                     {
+                        "text": "Yes, they are linked",
+                        "type": "button",
+                        "onClick": {
+                           "nextStep": "module_aadhar_api"
+                        }
+                     },
+                     {
+                        "text": "No, they are not linked",
+                        "type": "button",
+                        "onClick": {
+                           "nextStep": "module_id_card_validation"
+                        }
+                     }
+                  ]
+               }
+            ]
+         }
+      },
+      {
+         "type": "api",
+         "id": "module_aadhar_api",
+         "nextStep": "condition_post_aadhar_api",
+         "name": "Aadhar Card Fetch API Module",
+         "properties": {
+            "url": "https://ind-verify.hyperverge.co/api/digilocker/eAadhaarDetails",
+            "apiType": "json_post",
+            "requestBody": {
+               "referenceId": "HV001",
+               "aadhaarFile": "yes"
+            }
+         },
+         "variables": [
+            {
+               "name": "statusCode",
+               "path": "response.statusCode",
+               "possible_values": [
+                  200,
+                  400
+               ]
+            },
+            {
+               "name": "aadhaar",
+               "path": "response.result.aadhaarFile"
+            }
+         ]
+      },
+      {
+         "type": "document",
+         "id": "module_id_card_validation",
+         "nextStep": "condition_post_idcard_validation",
+         "name": "ID Card Validation",
+         "properties": {
+            "url": "https://ind-verify.hyperverge.co/api/v1/readId",
+            "apiType": "multipart_post",
+            "documentsSupported": [
+               "aadhaar"
+            ]
+         },
+         "variables": [
+            {
+               "name": "front_status",
+               "path": "front.response.status",
+               "possible_values": [
+                  "success",
+                  "failure"
+               ]
+            },
+            {
+               "name": "front_statuscode",
+               "path": "front.response.statusCode",
+               "possible_values": [
+                  200,
+                  400
+               ]
+            },
+            {
+               "name": "front_action",
+               "path": "front.response.result.summary.action",
+               "possible_values": [
+                  "pass",
+                  "fail"
+               ]
+            },
+            {
+               "name": "back_status",
+               "path": "back.response.status",
+               "possible_values": [
+                  "success",
+                  "failure"
+               ]
+            },
+            {
+               "name": "back_statuscode",
+               "path": "back.response.statusCode",
+               "possible_values": [
+                  200,
+                  400
+               ]
+            },
+            {
+               "name": "back_action",
+               "path": "back.response.result.summary.action",
+               "possible_values": [
+                  "pass",
+                  "fail"
+               ]
+            }
+         ]
+      },
+      {
+         "type": "face",
+         "id": "module_selfie_validation",
+         "nextStep": "module_face_match_api",
+         "name": "Selfie Validation",
+         "properties": {
+            "url": "https://ind-verify.hyperverge.co/v1/checkLiveness",
+            "apiType": "multipart_post"
+         },
+         "variables": [
+            {
+               "name": "statusCode",
+               "path": "response.statusCode",
+               "possible_values": [
+                  200,
+                  400
+               ]
+            },
+            {
+               "name": "action",
+               "path": "response.result.summary.action",
+               "possible_values": [
+                  "pass",
+                  "fail"
+               ]
+            }
+         ]
+      },
+      {
+         "type": "api",
+         "id": "module_face_match_api",
+         "subType": "face_match_api",
+         "nextStep": "condition_post_face_match",
+         "name": "Face Match API",
+         "properties": {
+            "url": "https://ind.idv.hyperverge.co/v1/matchFace",
+            "apiType": "multipart_post",
+            "requestParameters": [
+               {
+                  "name": "id",
+                  "type": "image",
+                  "value": "module_id_card_validation.front_imagePath"
+               },
+               {
+                  "name": "selfie",
+                  "type": "image",
+                  "value": "module_selfie_validation.fullImagePath"
+               }
+            ]
+         },
+         "variables": [
+            {
+               "name": "action",
+               "path": "response.result.summary.action",
+               "possible_values": [
+                  "pass",
+                  "fail"
+               ]
+            },
+            {
+               "name": "faceMatchModuleResult",
+               "path": "response.result"
+            }
+         ]
+      },
+      {
+         "type": "api",
+         "id": "module_check_aadhar_status",
+         "name": "Check Aadhar Status API",
+         "nextStep": "condition_aadhar_status_check",
+         "properties": {
+            "url": "https://dummyapi.hyperverge.co/api/checkAadhaarStatus",
+            "apiType": "get"
+         },
+         "variables": [
+            {
+               "name": "status",
+               "path": "response.status",
+               "possible_values": [
+                  "up",
+                  "down"
+               ]
+            }
+         ]
+      }
+   ],
+   "conditions": {
+      "condition_post_face_match": {
+         "rule": "module_face_match_api.action == 'pass'",
+         "if_true": "auto_approve",
+         "if_false": "auto_decline"
+      },
+      "condition_post_idcard_validation": {
+         "rule": "module_id_card_validation.front_action == 'pass' && module_id_card_validation.back_action == 'pass'",
+         "if_true": "module_selfie_validation",
+         "if_false": "auto_decline"
+      },
+      "condition_post_aadhar_api": {
+         "rule": "module_aadhar_api.statusCode == 200",
+         "if_true": "auto_approve",
+         "if_false": "auto_decline"
+      },
+      "condition_aadhar_status_check": {
+         "rule": "module_check_aadhar_status.status == 'up'",
+         "if_true": "module_aadhar_api",
+         "if_false": "module_id_card_validation"
+      }
+   }
+}
